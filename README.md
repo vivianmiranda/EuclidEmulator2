@@ -1,6 +1,20 @@
-## VM: Many optimizations (including threading) + solved a difficult memory leak related to the use of raw gsl pointers (not shared_ptr) + destructors (RAII) for memory management w/o creating adequate copy constructors that copied the data not just the pointer (so the class copied the pointers and then multiple destructors tried to free the same memory location). This is why C++ users should use smart_ptr and not RAII with raw ptr (unless they follow the rule of 5 that implies creating a copy constructor)
+## VM: Solved a difficult memory leak related.
 
-Test on 8 OpenMP cores (standard on Cocoa)
+What was the cause of the memory leak? A few reasons.
+
+(1)  The use of raw gsl pointers (not shared_ptr) + destructors (RAII) for memory management w/o creating adequate copy constructors that copied the data not just the pointer. In this case, the members of the class cosmology copied the pointers as they were passed by value in an argument of a function on Python. Then, multiple destructors tried to free the same memory location. This common issue is why C++ users should use smart_ptr and not RAII with raw ptr (unless they follow the rule of 5 that implies creating a copy constructor) - that was a topic on my computational physics C++ slides available on Cocoa repo. 
+
+(2) I guess to avoid problem one, the author explicitly commented on the C++ destructor for the Cosmology class. So, there was no RAII to delete the gsl_interp allocation.
+
+(3) Even with the C++ destructor coded, the author forgot to ask Python to call them in both Cosmology and Emulator wrappers. How do you make Python call the C++ destructor? See below
+
+
+<img width="450" alt="Screenshot 2025-05-23 at 12 41 51 PM" src="https://github.com/user-attachments/assets/5a4e4502-e149-4b19-885f-cab9afa7d81c" />
+
+
+## VM: Optimization. 
+
+EE2 was quite slow and not threaded. That was slowing down chains a lot. Fixed. Test on 8 OpenMP cores (standard on Cocoa)
 
 <img width="1086" alt="Screenshot 2025-05-23 at 12 52 35 AM" src="https://github.com/user-attachments/assets/480b6007-4ebf-4cbd-be4c-26712b053f32" />
 
