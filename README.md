@@ -2,7 +2,8 @@
 
 Test on 8 OpenMP cores (standard on Cocoa)
 
-![Uploading Screenshot 2025-05-23 at 12.51.38 AM.png…]()
+<img width="1086" alt="Screenshot 2025-05-23 at 12 52 35 AM" src="https://github.com/user-attachments/assets/480b6007-4ebf-4cbd-be4c-26712b053f32" />
+
 
 
 # EuclidEmulator2 (version 1.0.1)
