@@ -22,6 +22,7 @@
 
 #include <gsl/gsl_errno.h>
 #include <gsl/gsl_spline2d.h>
+#include <gsl/gsl_errno.h>
 #include <fstream>
 #include <vector>
 #include "cosmo.h"
@@ -30,7 +31,7 @@
 
 using namespace std;
 
-class EuclidEmulator{
+class EuclidEmulator {
 private:
   
   static constexpr int npcs = 14; //;
@@ -42,13 +43,13 @@ private:
   static constexpr int lmax = 16;
   static constexpr int nindices = 8;
 
-  gsl_spline2d* logklogz2pc_spline[15]; 
+  gsl_spline2d* logklogz2pc_spline[npcs+1]; 
 
   /* Private data containers */
-  arma::Mat<double>::fixed<nk*nz,npcs+1> pc;                     // principal components, pc[:,0] = pc mean
-  arma::Mat<double>::fixed<1539,npcs>    pce_coeffs;             // PCE coefficients
-  arma::Mat<int>::fixed<nindices*1539,npcs>     pce_multiindex;  // PCE multi-indices           
-  arma::Mat<double>::fixed<lmax+1,nindices>     univ_legendre;   // univariate legendre polynomials
+  arma::Mat<double>::fixed<nk*nz,npcs+1>        pc;                            // principal components, pc[:,0] = pc mean
+  arma::Mat<double>::fixed<1539,npcs>           pce_coeffs;                    // PCE coefficients
+  arma::Mat<int>::fixed<nindices*1539,npcs>     pce_multiindex;         // PCE multi-indices           
+ 
 
   /* Private member functions */
   void read_in_ee2_data_file();

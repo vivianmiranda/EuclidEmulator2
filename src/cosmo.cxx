@@ -36,7 +36,8 @@ using namespace SI_units;
 
 /* CONSTRUCTOR */
 Cosmology::Cosmology(double Omega_b, double Omega_m, 
-  double Sum_m_nu, double n_s, double h, double w_0, double w_a, double A_s)
+  double Sum_m_nu, double n_s, double h, double w_0, double w_a, double A_s) :
+  z2nStep_spline(gsl_spline_alloc(gsl_interp_cspline, nTable))
 {
   this->cosmo[0] = Omega_b;
   this->cosmo[1] = Omega_m;
@@ -64,8 +65,6 @@ Cosmology::Cosmology(double Omega_b, double Omega_m,
   this->t0  = a2t(1.0);           // proper time at z = 0 (or equivalently a = 1)
   this->t10 = a2t(1.0/(10+1));    // proper time at z = 10 (or equivalently a = 0.090909...)
   this->Delta_t = (this->t0-this->t10)/(this->nSteps-1);
-
-  z2nStep_spline = gsl_spline_alloc(gsl_interp_cspline, nTable);
   this->compute_z2nStep_spline();
   this->check_parameter_ranges();
   this->isoprob_tf();
@@ -76,17 +75,24 @@ Cosmology::Cosmology(double Omega_b, double Omega_m,
   } 
 }
 
-void Cosmology::check_parameter_ranges(){
+Cosmology::~Cosmology() {
+  /*if (this->z2nStep_spline != NULL) {
+    gsl_spline_free(this->z2nStep_spline);
+  }*/
+}
+
+void Cosmology::check_parameter_ranges() {
   for(int i=0 ; i<8; i++) {
     if(cosmo[i] < minima[i] || cosmo[i] > maxima[i] ) {
       std::cout << "Parameter " << i << " is outside allowed range:" << std::endl;
       std::cout << "cosmo[" << i << "] = " << cosmo[i] << std::endl;
       exit(1);
     }
-    if(i==5) i++;
+    if(i==5) {
+      i++;
+    }
   }
-  // Check w_a separately because values >0.5 are not
-  // allowed although they are inside the range
+  // Check w_a separately: >0.5 not allowed although they are inside the range
   if(cosmo[6] < -0.7 || cosmo[6] > 0.5 ) {
     std::cout << "Parameter w_a is outside allowed range:" << std::endl;
     std::cout << " w_a = " << cosmo[6] << std::endl;
@@ -95,22 +101,18 @@ void Cosmology::check_parameter_ranges(){
 }
 
 /* ISOPROBALISTIC TRANSFORMATION TO UNIT HYPERCUBE */
-void Cosmology::isoprob_tf(){
+void Cosmology::isoprob_tf() {
   for (int i=0; i<8; i++){
     cosmo_tf[i] = 2*(cosmo[i] - minima[i])/(maxima[i] - minima[i]) - 1.0;
   }
 }
 
 /* COMPUTE a(t) TABLE FOR GIVEN COSMOLOGY */
-double Cosmology::Omega_matter(double a){
-  /* This function computes the matter density parameter *\
-  \* in the Universe at scale factor a.                  */
+double Cosmology::Omega_matter(double a){                
   return this->cosmo[1] / (a*a*a);
 }
 
-double Cosmology::Omega_gamma(double a){
-  /* This function computes the photon density parameter in the Universe at scale factor a */
-
+double Cosmology::Omega_gamma(double a) {
   // Present day photon density corresponding to T_gamma (also in SI units):
   double rho_gamma_0 =  M_PI * M_PI / 15.0
             * pow(kB,4) / (pow(hbar,3)*pow(c,5))
@@ -118,32 +120,31 @@ double Cosmology::Omega_gamma(double a){
 
   // Scale the photon density and return result
   this->Omega_gamma_0 = rho_gamma_0 / this->rho_crit;
-    return this->Omega_gamma_0 / (a*a*a*a);
+  
+  return this->Omega_gamma_0 / (a*a*a*a);
 }
 
-double Cosmology::T_gamma(double a){
+double Cosmology::T_gamma(double a) {
   return Tgamma/a;
 }
 
-double Cosmology::T_nu(double a){
+double Cosmology::T_nu(double a) {
   return pow(this->Neff/3.0,0.25)*pow(4.0/11.0,1./3.)*Tgamma/a;
 }
 
 double Cosmology::rho_nu_i_integrand(double p, void * params){
-  /* This function provides the integrand for the function Cosmology::Omega_nu */
-  rho_nu_parameters *rho_nu_pars = reinterpret_cast<rho_nu_parameters *>(params);
+  rho_nu_parameters *rho_nu_pars = reinterpret_cast<rho_nu_parameters*>(params);
 
   double T_nu = rho_nu_pars->csm_instance->T_nu_0;
   double mnui = rho_nu_pars->mnu_i;
   double p2 = p*p;
-  double y = p2 / ( exp(c/kB/T_nu * rho_nu_pars->a * p) + 1 );
+  double y = p2 / (exp(c/kB/T_nu * rho_nu_pars->a * p) + 1);
 
   return y * sqrt( mnui*mnui*c*c*c*c + p2*c*c);
 }
 
 double Cosmology::Omega_nu(double a) {
-  /* This function computes the neutrino density parameter in the Universe at scale factor a */
-  /* REMARK: The assumption of a degenerate neutrino hierarchy is hardcoded. */
+  // REMARK: The assumption of a degenerate neutrino hierarchy is hardcoded.
   rho_nu_parameters rho_nu_pars;
   gsl_function F;
   double rho_nu_i, error;
@@ -184,14 +185,12 @@ double Cosmology::Omega_nu(double a) {
 }
 
 double Cosmology::Omega_DE(double a){
-  double w_0 = this->cosmo[5];
-  double w_a = this->cosmo[6];
-
-  // The following is equation (2.67) in my thesis
+  const double w_0 = this->cosmo[5];
+  const double w_a = this->cosmo[6];
   return this->Omega_DE_0 * pow(a, -3.0 *(1 + w_0 + w_a)) * exp(-3*(1-a)*w_a);
 }
 
-double Cosmology::a2Hubble(double a){
+double Cosmology::a2Hubble(double a) {
   H0 = 100*this->cosmo[4] * kilometer/second/Mpc;
   return H0 * sqrt( Cosmology::Omega_matter(a)
           + Cosmology::Omega_gamma(a)
@@ -200,14 +199,12 @@ double Cosmology::a2Hubble(double a){
           );
 }
 
-double Cosmology::a2t_integrand(double lna, void *params){
-  // This function provides the integrand for the GSL
-  // integration in Cosmology::a2t below.         
+double Cosmology::a2t_integrand(double lna, void *params) {      
   a2t_parameters *a2t_pars = reinterpret_cast<a2t_parameters *>(params);
   return 1./(a2t_pars->csm_instance->a2Hubble(exp(lna)));
 }
 
-double Cosmology::a2t(double a){
+double Cosmology::a2t(double a) {
   // This function converts a scale factor a to a proper time.
   a2t_parameters a2t_params;
   gsl_function F;
@@ -238,7 +235,7 @@ void Cosmology::compute_z2nStep_spline() {
   constexpr double z10 = 10.0;
   
   #pragma omp parallel for
-  for(int idx=0; idx<this->nTable; idx++){
+  for(int idx=0; idx<this->nTable; idx++) {
     // Loop through redshifts: z \in {10.0, 9.9, ..., 0.1, 0.0}
     const double z = z10 - idx*0.1;
     // Convert z to a (GSL expects x-values to be in ascending order)

@@ -39,9 +39,15 @@ using namespace std;
 /* CONSTRUCTOR */
 EuclidEmulator::EuclidEmulator()
 {
-
+  for(int i=0; i<this->npcs+1; i++) {
+      this->logklogz2pc_spline[i] = NULL;
+  }
+  for(int iz = 0; iz<nz; iz++) {
+    for(int ik = 0; ik<nk; ik++) {
+      this->Bvec[iz][ik] = 0.0; // initialize the resulting nlc vector
+    }
+  }
   read_in_ee2_data_file();
-
   pc_2d_interp();
 
 }
@@ -50,7 +56,10 @@ EuclidEmulator::EuclidEmulator()
 EuclidEmulator::~EuclidEmulator()
 {
   for(int i=0; i<npcs; i++) {
+    if (this->logklogz2pc_spline[i] != NULL) {
       gsl_spline2d_free(logklogz2pc_spline[i]);
+      this->logklogz2pc_spline[i] = NULL;
+    }
   }
 }
 
@@ -71,12 +80,6 @@ void EuclidEmulator::read_in_ee2_data_file()
     int status = fstat(fp, & s);
     size = s.st_size;
     data = (double *) mmap (0, size, PROT_READ, MAP_PRIVATE, fp, 0);
-  }
-
-  for(int iz = 0; iz < nz; iz++) {
-    for(int ik = 0; ik < nk; ik++) {
-      this->Bvec[iz][ik] = 0.0; // initialize the resulting nlc vector
-    }
   }
 
   int idx = 0;
@@ -123,7 +126,7 @@ void EuclidEmulator::pc_2d_interp()
   for (int i=0; i<this->npcs+1; i++) {
     this->logklogz2pc_spline[i] = gsl_spline2d_alloc(gsl_interp2d_bicubic, 
                                                      this->nk, 
-                                                    this->nz);
+                                                     this->nz);
   }
   #pragma omp parallel for
   for (int i=0; i<this->npcs+1; i++) {
@@ -154,13 +157,17 @@ void EuclidEmulator::compute_nlc(Cosmology csm,
     stp_no(iz) = csm.compute_step_number(redshift.at(iz));
   }
 
+  arma::Mat<double>::fixed<lmax+1,nindices>  univ_legendre;    // univariate legendre polynomials
   #pragma omp parallel for
   for (int ipar=0; ipar<this->nindices; ipar++) { // Pre-compute Legendre up to order lmax
-    gsl_sf_legendre_Pl_array(this->lmax, 
-                             csm.cosmo_tf[ipar], 
-                             this->univ_legendre.colptr(ipar));
+    int status = gsl_sf_legendre_Pl_array(this->lmax, 
+                                          csm.cosmo_tf[ipar], 
+                                          univ_legendre.colptr(ipar));
+    if (status) {
+      cout << "error: " << gsl_strerror (status) << std::endl;
+    }
     for (int l=0; l<=lmax; l++) {
-      this->univ_legendre(l,ipar) *= sqrt(2.0*l + 1.0); //normalization
+      univ_legendre(l,ipar) *= sqrt(2.0*l + 1.0); //normalization
     }
   }
 
@@ -170,7 +177,7 @@ void EuclidEmulator::compute_nlc(Cosmology csm,
        // assemble PCE to get the PCA weight according to inner sum of eq. 27 in EE2 paper
       double basicfunc = 1.0;
       for(int ipar=0; ipar<this->nindices; ipar++) {
-        basicfunc *= this->univ_legendre(this->pce_multiindex(ic*8 + ipar,ipc-1),ipar);
+        basicfunc *= univ_legendre(this->pce_multiindex(ic*8 + ipar,ipc-1),ipar);
       }
       pc_weight(ipc-1) += this->pce_coeffs(ic,ipc-1)*basicfunc;
     }

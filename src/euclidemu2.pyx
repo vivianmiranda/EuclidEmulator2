@@ -75,10 +75,9 @@ cdef extern from "emulator.h":
 #Create new python classes for wrapping the c++ classes
 cdef class PyCosmology:
 
-     cdef Cosmology*cosm
+    cdef Cosmology* cosm
 
-
-     def __cinit__(self, double Omega_b , double Omega_m , double Sum_m_nu , double n_s , double h , double w_0 , double w_a , double A_s ):
+    def __cinit__(self, double Omega_b , double Omega_m , double Sum_m_nu , double n_s , double h , double w_0 , double w_a , double A_s ):
         """Cython signature: void Cosmology(double Omega_b, double Omega_m, double Sum_m_nu, double n_s, double h, double w_0, double w_a, double A_s)"""
         assert isinstance(Omega_b, float), 'arg Omega_b wrong type'
         assert isinstance(Omega_m, float), 'arg Omega_m wrong type'
@@ -91,44 +90,55 @@ cdef class PyCosmology:
 
         self.cosm =new Cosmology((<double>Omega_b), (<double>Omega_m), (<double>Sum_m_nu), (<double>n_s), (<double>h), (<double>w_0), (<double>w_a), (<double>A_s))
 
-     # Attribute access
-     @property
-     def Omega_nu_0(self):
+    #VM BEGINS
+    def __dealloc__(self):
+        if self.cosm is not NULL:
+            del self.cosm 
+    #VM ENDS
+    # Attribute access
+    @property
+    def Omega_nu_0(self):
         return self.cosm.Omega_nu_0
-     @Omega_nu_0.setter
-     def Omega_nu_0(self, Omega_nu_0):
+    @Omega_nu_0.setter
+    def Omega_nu_0(self, Omega_nu_0):
         self.cosm.Omega_nu_0 = Omega_nu_0
 
 
 cdef class PyEuclidEmulator:
 
-     cdef EuclidEmulator*ee2
+    cdef EuclidEmulator* ee2
 
-     def __cinit__(self):
+    def __cinit__(self):
         self.ee2 = new EuclidEmulator()
 
+    #VM BEGINS
+    def __dealloc__(self):
+        if self.ee2  is not NULL:
+            del self.ee2 
+    #VM ENDS
 
-     def compute_nlc(self,PyCosmology csm, redshift, n_redshift):
-          self.ee2.compute_nlc((<Cosmology *> csm.cosm)[0], redshift, n_redshift)
+    def compute_nlc(self,PyCosmology csm, redshift, n_redshift):
+        self.ee2.compute_nlc((<Cosmology *> csm.cosm)[0], redshift, n_redshift)
 
-     def write_nlc2file(self,filename, zvec, n_redshift):
-          self.ee2.write_nlc2file(<string>filename, zvec, n_redshift)
+    def write_nlc2file(self,filename, zvec, n_redshift):
+        self.ee2.write_nlc2file(<string>filename, zvec, n_redshift)
 
 
 
      # Attribute access
-     @property
-     def kvec(self):
+    @property
+    def kvec(self):
         return self.ee2.kvec
-     @kvec.setter
-     def kvec(self, kvec):
+    
+    @kvec.setter
+    def kvec(self, kvec):
         self.ee2.kvec = kvec
 
-     @property
-     def Bvec(self):
+    @property
+    def Bvec(self):
         return self.ee2.Bvec
-     @Bvec.setter
-     def Bvec(self, Bvec):
+    @Bvec.setter
+    def Bvec(self, Bvec):
         self.ee2.Bvec = Bvec
 
 
