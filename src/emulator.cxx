@@ -135,8 +135,6 @@ void EuclidEmulator::compute_nlc(Cosmology csm,
     }
   }
 
-  double pc_weight;
-
   arma::Col<double> stp_no(n_redshift);
   #pragma omp parallel for
   for(int iz=0; iz<n_redshift; iz++) {
@@ -158,7 +156,7 @@ void EuclidEmulator::compute_nlc(Cosmology csm,
   }
 
 
-  arma::Col<double>::fixed<this->npcs> pc_weight2(arma::fill::zeros);  
+  arma::Col<double>::fixed<this->npcs> pc_weight(arma::fill::zeros);  
   for(int ipc=1; ipc<this->npcs+1; ipc++) 
   {
     for(int ic=0; ic<n_coeffs[ipc-1]; ic++)
@@ -168,10 +166,48 @@ void EuclidEmulator::compute_nlc(Cosmology csm,
       for(int ipar=0; ipar<8; ipar++){
         basisfunc *= univ_legendre(int(pce_multiindex[ipc-1][ic*8 + ipar]),ipar);
       }
-      pc_weight2(ipc-1) += pce_coeffs[ipc-1][ic]*basisfunc;
+      pc_weight(ipc-1) += pce_coeffs[ipc-1][ic]*basisfunc;
     }
   }
 
+  arma::Cube<double> tmp(n_redshift, nk, this->npcs+1);
+  #pragma omp parallel for collapse(3)
+  for(int iz=0; iz<n_redshift; iz++) {
+    for(int ik=0; ik<nk; ik++) {
+      for(int ipc=0; ipc<this->npcs+1; ipc++) {
+        tmp(iz,ik,ipc) = gsl_spline2d_eval(logklogz2pc_spline[ipc].get(), 
+                                           log(this->kvec[ik]), 
+                                           stp_no(iz), 
+                                           NULL, 
+                                           NULL);
+      }
+    }
+  }
+
+/*
+  for(int iz=0; iz<n_redshift; iz++) {
+    for(int ik=0; ik<nk; ik++) {
+        Bvec[iz][ik] = tmp(iz,ik,0);
+    }
+  }
+  for(int ipc=1; ipc<this->npcs+1; ipc++) {
+    for(int iz=0; iz<n_redshift; iz++) {
+      for(int ik=0; ik<nk; ik++) {
+          Bvec[iz][ik] += pc_weight(ipc-1)*tmp(iz,ik,ipc);
+        }
+      }
+  }
+*/
+  for(int iz=0; iz<n_redshift; iz++) {
+    for(int ik=0; ik<nk; ik++) {
+      Bvec[iz][ik] = tmp(iz,ik,0);
+      for(int ipc=1; ipc<this->npcs+1; ipc++) {
+        Bvec[iz][ik] += pc_weight(ipc-1)*tmp(iz,ik,ipc);
+      }
+    }
+  }
+
+/*
   // Initialize with PCA mean
   for(int iz=0; iz<n_redshift; iz++){
     for(int ik=0; ik<nk; ik++) {
@@ -183,31 +219,21 @@ void EuclidEmulator::compute_nlc(Cosmology csm,
     }
   }
 
+
   for(int ipc=1; ipc<this->npcs+1; ipc++)
   {
-    pc_weight = 0.0;
-    // assemble PCE to get the PCA weight according
-        // to inner sum of eq. 27 in EE2 paper
-        for(int ic=0; ic<n_coeffs[ipc-1]; ic++){
-          double basisfunc = 1.0;
-            for(int ipar=0; ipar<8 ; ipar++){
-                basisfunc *= univ_legendre(int(pce_multiindex[ipc-1][ic*8 + ipar]),ipar);
-            }
-            pc_weight         += pce_coeffs[ipc-1][ic]*basisfunc;
-        }
-
-    cout << pc_weight2(ipc-1) <<  "  " << pc_weight << std::endl;
 
     // assemble PCA to get the final NLC according
         // to outer sum of eq. 27 in EE2 paper
     for(int iz=0; iz<n_redshift; iz++){
       for(int ik=0; ik<nk; ik++){
         
-        Bvec[iz][ik] += (pc_weight2(ipc-1)*
+        Bvec[iz][ik] += (pc_weight(ipc-1)*
           gsl_spline2d_eval(logklogz2pc_spline[ipc].get(), log(this->kvec[ik]), stp_no(iz), NULL, NULL));
       }
     }
   }
+*/
   //printf("PCA assembled\n");
 }
 
