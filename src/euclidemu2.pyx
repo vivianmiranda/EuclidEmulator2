@@ -91,6 +91,7 @@ cdef class PyCosmology:
         self.cosm =new Cosmology((<double>Omega_b), (<double>Omega_m), (<double>Sum_m_nu), (<double>n_s), (<double>h), (<double>w_0), (<double>w_a), (<double>A_s))
 
     #VM BEGINS
+    # ORIGINAL AUTHOR FORGOT TO CODE A DEALLOC
     def __dealloc__(self):
         if self.cosm is not NULL:
             del self.cosm 
@@ -112,6 +113,7 @@ cdef class PyEuclidEmulator:
         self.ee2 = new EuclidEmulator()
 
     #VM BEGINS
+    # ORIGINAL AUTHOR FORGOT TO CODE A DEALLOC
     def __dealloc__(self):
         if self.ee2  is not NULL:
             del self.ee2 

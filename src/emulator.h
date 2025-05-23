@@ -43,13 +43,14 @@ private:
   static constexpr int lmax = 16;
   static constexpr int nindices = 8;
 
-  gsl_spline2d* logklogz2pc_spline[npcs+1]; 
+  std::array<std::shared_ptr<gsl_interp2d>,npcs+1> logklogz2pc_spline; 
 
   /* Private data containers */
   arma::Mat<double>::fixed<nk*nz,npcs+1>        pc;                            // principal components, pc[:,0] = pc mean
   arma::Mat<double>::fixed<1539,npcs>           pce_coeffs;                    // PCE coefficients
   arma::Mat<int>::fixed<nindices*1539,npcs>     pce_multiindex;         // PCE multi-indices           
- 
+  arma::Col<double>::fixed<nk> logk;
+  arma::Col<double>::fixed<nz> stp;
 
   /* Private member functions */
   void read_in_ee2_data_file();
@@ -61,7 +62,7 @@ public:
   double Bvec[nz][nk];
 
   EuclidEmulator();
-  ~EuclidEmulator();
+  ~EuclidEmulator() = default;
   void compute_nlc(Cosmology csm, vector<double> redshift, int n_redshift);
   void write_nlc2file(const string &filename, vector<double> zvec, int n_redshift);
 };

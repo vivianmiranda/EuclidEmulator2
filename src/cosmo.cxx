@@ -36,8 +36,14 @@ using namespace SI_units;
 
 /* CONSTRUCTOR */
 Cosmology::Cosmology(double Omega_b, double Omega_m, 
-  double Sum_m_nu, double n_s, double h, double w_0, double w_a, double A_s) :
-  z2nStep_spline(gsl_spline_alloc(gsl_interp_cspline, nTable))
+                     double Sum_m_nu, double n_s, double h, 
+                     double w_0, double w_a, double A_s) :
+  avec(arma::fill::none),
+  frac_nStep(arma::fill::none),
+  // VM: LACK OF COPY CONSTRUCTOR IN THE ORIGINAL CODE CREATED A DOUBLE FREE ERROR 
+  // VM: ON GSL* (DESTRUCTOR) AS PASSING COSMO BY VALUE COPIED THE GSL POINTER
+  // VM: ORIGINAL AUTHOR JUST DELETED THE DESTRUCTOR CREATING A LEAK MEMORY
+  z2nStep_spline(gsl_interp_alloc(gsl_interp_cspline, nTable),[](gsl_interp* p){gsl_interp_free(p);})
 {
   this->cosmo[0] = Omega_b;
   this->cosmo[1] = Omega_m;
@@ -47,6 +53,7 @@ Cosmology::Cosmology(double Omega_b, double Omega_m,
   this->cosmo[5] = w_0;
   this->cosmo[6] = w_a;
   this->cosmo[7] = A_s;
+
   // Compute the present day temperatures of the photon (gamma) and the
   // neutrino (nu) fluids:
   this->T_gamma_0 = T_gamma(1.0);
@@ -56,9 +63,9 @@ Cosmology::Cosmology(double Omega_b, double Omega_m,
   this->rho_crit = rho_crit_over_h2 * pow(this->cosmo[4],2);
   // Now we can compute the present day values of the density parameters
   // of the neutrino, the photon and the dark energy (DE) fluid:
-  this->Omega_nu_0 = Omega_nu(1.0);
+  this->Omega_nu_0    = Omega_nu(1.0);
   this->Omega_gamma_0 = Omega_gamma(1.0);
-  this->Omega_DE_0 = 1 - (this->cosmo[1] + this->Omega_gamma_0 + this->Omega_nu_0);
+  this->Omega_DE_0    = 1 - (this->cosmo[1] + this->Omega_gamma_0 + this->Omega_nu_0);
 
   //printf("Cosmological parameters assigned successfully\n");
   // Prepare for spline interpolation of z --> nStep mapping:
@@ -73,12 +80,6 @@ Cosmology::Cosmology(double Omega_b, double Omega_m,
     print_cosmo();
     print_cosmo_tf();
   } 
-}
-
-Cosmology::~Cosmology() {
-  /*if (this->z2nStep_spline != NULL) {
-    gsl_spline_free(this->z2nStep_spline);
-  }*/
 }
 
 void Cosmology::check_parameter_ranges() {
@@ -229,9 +230,6 @@ void Cosmology::compute_z2nStep_spline() {
   // computed in "Cosmology::compute_time_lookup_table". It returns a
   // gsl_spline function than can be readily evaluated.   
 
-  arma::Col<double>::fixed<this->nSteps> avec(arma::fill::none);
-  arma::Col<double>::fixed<this->nSteps> frac_nStep(arma::fill::none);
-
   constexpr double z10 = 10.0;
   
   #pragma omp parallel for
@@ -239,21 +237,21 @@ void Cosmology::compute_z2nStep_spline() {
     // Loop through redshifts: z \in {10.0, 9.9, ..., 0.1, 0.0}
     const double z = z10 - idx*0.1;
     // Convert z to a (GSL expects x-values to be in ascending order)
-    avec(idx) = 1.0/(z+1.0);
+    this->avec(idx) = 1.0/(z+1.0);
     // Convert a to t
-    const double t_current = Cosmology::a2t(avec(idx));
+    const double t_current = Cosmology::a2t(this->avec(idx));
     // Convert t to nStep (fractional)
-    frac_nStep(idx) = (t_current - this->t10)/this->Delta_t;
+    this->frac_nStep(idx) = (t_current - this->t10)/this->Delta_t;
   }
 
   // Some sanity checks:
-  assert(abs(frac_nStep(0)) < EPSCOSMO);
-  assert(abs(frac_nStep(this->nTable-1) - (this->nSteps-1)) < EPSCOSMO);
+  assert(abs(this->frac_nStep(0)) < EPSCOSMO);
+  assert(abs(this->frac_nStep(this->nTable-1) - (this->nSteps-1)) < EPSCOSMO);
 
   // Step 2: Interpolate the array
-  gsl_spline_init(this->z2nStep_spline, 
-                  avec.memptr(), 
-                  frac_nStep.memptr(), 
+  gsl_interp_init(this->z2nStep_spline.get(), 
+                  this->avec.memptr(), 
+                  this->frac_nStep.memptr(), 
                   this->nTable);
 }
 
@@ -263,7 +261,11 @@ double Cosmology::compute_step_number(double z) {
     return 100.0;
   }
   else {
-    return gsl_spline_eval(this->z2nStep_spline, 1./(z + 1.), NULL);
+    return gsl_interp_eval(this->z2nStep_spline.get(), 
+                           this->avec.memptr(),
+                           this->frac_nStep.memptr(),
+                           1.0/(z + 1.), 
+                           NULL);
   }
 }
 

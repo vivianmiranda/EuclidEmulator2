@@ -52,17 +52,6 @@ EuclidEmulator::EuclidEmulator()
 
 }
 
-/* DESTRUCTOR */
-EuclidEmulator::~EuclidEmulator()
-{
-  for(int i=0; i<npcs; i++) {
-    if (this->logklogz2pc_spline[i] != NULL) {
-      gsl_spline2d_free(logklogz2pc_spline[i]);
-      this->logklogz2pc_spline[i] = NULL;
-    }
-  }
-}
-
 /* FUNCTION TO READ IN THE DATA FILE */
 void EuclidEmulator::read_in_ee2_data_file()
 {
@@ -113,24 +102,21 @@ void EuclidEmulator::read_in_ee2_data_file()
 
 void EuclidEmulator::pc_2d_interp()
 {
-  arma::Col<double>::fixed<this->nk> logk;
-  arma::Col<double>::fixed<this->nz> stp;
-
   #pragma omp parallel for
   for (int i=0; i<this->nk; i++) {
-    logk(i) = log(this->kvec[i]);
+    this->logk(i) = log(this->kvec[i]);
   }
   for (int i=nz-1; i>=0; i--) {
-    stp(i) = i;
+    this->stp(i) = i;
   }
   for (int i=0; i<this->npcs+1; i++) {
-    this->logklogz2pc_spline[i] = gsl_spline2d_alloc(gsl_interp2d_bicubic, 
-                                                     this->nk, 
-                                                     this->nz);
+    this->logklogz2pc_spline[i] = 
+      std::shared_ptr<gsl_interp2d>(gsl_interp2d_alloc(gsl_interp2d_bicubic,this->nk,this->nz),
+                                    [](gsl_interp2d* p){gsl_interp2d_free(p);});
   }
   #pragma omp parallel for
   for (int i=0; i<this->npcs+1; i++) {
-    gsl_spline2d_init(this->logklogz2pc_spline[i], 
+    gsl_interp2d_init(this->logklogz2pc_spline[i].get(), 
                       logk.memptr(), 
                       stp.memptr(), 
                       this->pc.colptr(i), 
@@ -188,7 +174,10 @@ void EuclidEmulator::compute_nlc(Cosmology csm,
   for(int iz=0; iz<n_redshift; iz++) {
     for(int ik=0; ik<nk; ik++) {
       for(int ipc=0; ipc<this->npcs; ipc++) {
-        tmp(iz,ik,ipc) = gsl_spline2d_eval(logklogz2pc_spline[ipc], 
+        tmp(iz,ik,ipc) = gsl_interp2d_eval(logklogz2pc_spline[ipc].get(), 
+                                           logk.memptr(), 
+                                           stp.memptr(), 
+                                           this->pc.colptr(ipc), 
                                            log(this->kvec[ik]), 
                                            stp_no(iz), 
                                            NULL, 

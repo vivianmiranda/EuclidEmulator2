@@ -19,6 +19,7 @@
 
 #ifndef COSMOLOGY_H
 #define COSMOLOGY_H
+#include <memory>
 #include <gsl/gsl_integration.h>
 #include <gsl/gsl_spline.h>
 #include <armadillo>
@@ -28,13 +29,15 @@ class Cosmology{
     double cosmo[8], cosmo_tf[8];
     double Omega_gamma_0, Omega_nu_0, Omega_DE_0, rho_crit, T_gamma_0, T_nu_0;
 
-    /* Ranges for cosmological parameters */
-        const double minima[8] = {0.04, 0.24, 0.00, 0.92, 0.61, -1.3, -0.7, 1.7e-9};
-        const double maxima[8] = {0.06, 0.40, 0.15, 1.00, 0.73, -0.7, 0.7, 2.5e-9};
+    // Ranges for cosmological parameters 
+    static constexpr double minima[8] = {0.04, 0.24, 0.00, 0.92, 0.61, -1.3, -0.7, 1.7e-9};
+    static constexpr double maxima[8] = {0.06, 0.40, 0.15, 1.00, 0.73, -0.7, 0.7, 2.5e-9};
     
     /* Member functions */
+
     Cosmology(double Omega_b, double Omega_m, double Sum_m_nu, double n_s, double h, double w_0, double w_a, double A_s);
-    ~Cosmology();
+    ~Cosmology() = default;
+
     void read_from_file(char *filename);
     void print_cosmo();
     void print_cosmo_tf();
@@ -46,6 +49,10 @@ class Cosmology{
     static constexpr double Neff = 3.046;
     static constexpr int nTable = 101;
     static constexpr int nSteps = 101; 
+    
+    arma::Col<double>::fixed<nSteps> avec;
+    arma::Col<double>::fixed<nSteps> frac_nStep;
+
     /* Private members */
     double t0, t10, Delta_t, H0;
 
@@ -58,8 +65,11 @@ class Cosmology{
             Cosmology * csm_instance;
     } a2t_parameters;
 
-
-    gsl_spline *z2nStep_spline = NULL;
+    // VM: LACK OF COPY CONSTRUCTOR IN THE ORIGINAL CODE CREATED A DOUBLE FREE ERROR 
+    // VM: ON GSL* (DESTRUCTOR) AS PASSING COSMO BY VALUE COPIED THE GSL POINTER
+    // VM: ORIGINAL AUTHOR JUST DELETED THE DESTRUCTOR CREATING A LEAK MEMORY
+    // SOLUTION: SMART_PTR w/ custom deleter
+    std::shared_ptr<gsl_interp> z2nStep_spline;
 
     /* Private member functions*/
     void isoprob_tf();
