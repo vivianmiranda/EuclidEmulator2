@@ -2,11 +2,11 @@
 
 What was the cause of the memory leak? A few reasons.
 
-(1)  The use of raw gsl pointers (not shared_ptr) + destructors (RAII) for memory management w/o creating adequate copy constructors that copied the data not just the pointer (problem on both cosmology and emulator classes). In this case, the members of the class cosmology copied the pointers as they were passed by value in an argument of a function on Python. Then, multiple destructors tried to free the same memory location. This common issue is why C++ users should use smart_ptr and not RAII with raw ptr (unless they follow the so-called *rule of 5* that implies creating a copy constructor) - that was a topic on my computational physics C++ slides available on Cocoa repo. 
+(1)  The use of raw gsl pointers (not shared_ptr) + destructors (RAII) for memory management w/o creating adequate copy constructors that copied the data not just the pointer (problem on both cosmology and emulator classes). In this case, the members of the class cosmology copied the pointers as they were passed by value in an argument of a function on Python. Then, multiple destructors tried to free the same memory location (this double free causes an immediate segfault). This common issue is why C++ users should use smart_ptr and not RAII with raw ptr (unless they follow the so-called *rule of 5* that implies creating a copy constructor) - that was a topic on my computational physics C++ slides available on Cocoa repo. 
 
-(2) I guess to avoid problem one, the author explicitly commented on the C++ destructor for the Cosmology class. So, there was no RAII to delete the gsl_interp allocation.
+(2) To avoid problem one, the author seemed to have explicitly commented on the C++ destructor for the Cosmology class. So, there was no RAII to delete the gsl_interp allocation.
 
-(3) Even with the C++ destructor coded, the author forgot to ask Python to call them in both Cosmology and Emulator wrappers (`cdef class PyCosmology` and `cdef class PyEuclidEmulator` in euclidmu2.pyx). How do you make Python call the C++ destructor? See below
+(3) Even with the C++ destructors coded, the author forgot to ask Python to call them in both Cosmology and Emulator wrappers (`cdef class PyCosmology` and `cdef class PyEuclidEmulator` in euclidmu2.pyx). How do you make Python call the C++ destructor? See below
 
 
 <img width="450" alt="Screenshot 2025-05-23 at 12 41 51 PM" src="https://github.com/user-attachments/assets/5a4e4502-e149-4b19-885f-cab9afa7d81c" />
