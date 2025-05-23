@@ -136,7 +136,6 @@ void EuclidEmulator::compute_nlc(Cosmology csm,
   }
 
   double pc_weight;
-  double basisfunc;
 
   arma::Col<double> stp_no(n_redshift);
   #pragma omp parallel for
@@ -158,44 +157,54 @@ void EuclidEmulator::compute_nlc(Cosmology csm,
     }
   }
 
-  arma::Col<double>::fixed<this->npcs-1> pc_weight(arma::fill::zeros);
-  for(int ipc=1; ipc<this->npcs; ipc++) {
-    for(int ic=0; ic<n_coeffs[ipc-1]; ic++) {
+
+  arma::Col<double>::fixed<this->npcs> pc_weight2(arma::fill::zeros);  
+  for(int ipc=1; ipc<this->npcs+1; ipc++) 
+  {
+    for(int ic=0; ic<n_coeffs[ipc-1]; ic++)
+    {
        // assemble PCE to get the PCA weight according to inner sum of eq. 27 in EE2 paper
-      double basicfunc = 1.0;
-      for(int ipar=0; ipar<this->nindices; ipar++) {
-        basicfunc *= univ_legendre(int(pce_multiindex[ipc-1][ic*8 + ipar]),ipar);
+      double basisfunc = 1.0;
+      for(int ipar=0; ipar<8; ipar++){
+        basisfunc *= univ_legendre(int(pce_multiindex[ipc-1][ic*8 + ipar]),ipar);
       }
-      pc_weight(ipc-1) += pce_coeffs[ipc-1][ic]*basicfunc;
+      pc_weight2(ipc-1) += pce_coeffs[ipc-1][ic]*basisfunc;
     }
   }
 
   // Initialize with PCA mean
   for(int iz=0; iz<n_redshift; iz++){
     for(int ik=0; ik<nk; ik++) {
-      Bvec[iz][ik] = gsl_spline2d_eval(logklogz2pc_spline[0].get(), log(this->kvec[ik]), stp_no(iz), NULL, NULL);
+      Bvec[iz][ik] = gsl_spline2d_eval(logklogz2pc_spline[0].get(), 
+                                       log(this->kvec[ik]), 
+                                       stp_no(iz), 
+                                       NULL, 
+                                       NULL);
     }
-    //printf("B(k_max, z=%.2f) = %.2f\n", redshift.at(iz), Bvec[iz][nk-1]);
   }
-  //printf("PCA initialized\n");
 
-  // Loop over principal components
-  for(int ipc=1; ipc<15; ipc++){
+  for(int ipc=1; ipc<this->npcs+1; ipc++)
+  {
     pc_weight = 0.0;
     // assemble PCE to get the PCA weight according
         // to inner sum of eq. 27 in EE2 paper
         for(int ic=0; ic<n_coeffs[ipc-1]; ic++){
-          basisfunc = 1.0;
+          double basisfunc = 1.0;
             for(int ipar=0; ipar<8 ; ipar++){
                 basisfunc *= univ_legendre(int(pce_multiindex[ipc-1][ic*8 + ipar]),ipar);
             }
-            pc_weight += pce_coeffs[ipc-1][ic]*basisfunc;
+            pc_weight         += pce_coeffs[ipc-1][ic]*basisfunc;
         }
+
+    cout << pc_weight2(ipc-1) <<  "  " << pc_weight << std::endl;
+
     // assemble PCA to get the final NLC according
         // to outer sum of eq. 27 in EE2 paper
     for(int iz=0; iz<n_redshift; iz++){
       for(int ik=0; ik<nk; ik++){
-        Bvec[iz][ik] += (pc_weight*gsl_spline2d_eval(logklogz2pc_spline[ipc].get(), log(this->kvec[ik]), stp_no(iz), NULL, NULL));
+        
+        Bvec[iz][ik] += (pc_weight2(ipc-1)*
+          gsl_spline2d_eval(logklogz2pc_spline[ipc].get(), log(this->kvec[ik]), stp_no(iz), NULL, NULL));
       }
     }
   }
