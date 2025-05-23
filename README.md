@@ -6,17 +6,21 @@ What was the cause of the memory leak? A few reasons.
 
 (2) I guess to avoid problem one, the author explicitly commented on the C++ destructor for the Cosmology class. So, there was no RAII to delete the gsl_interp allocation.
 
-(3) Even with the C++ destructor coded, the author forgot to ask Python to call them in both Cosmology and Emulator wrappers. How do you make Python call the C++ destructor? See below
+(3) Even with the C++ destructor coded, the author forgot to ask Python to call them in both Cosmology and Emulator wrappers (`cdef class PyCosmology` and `cdef class PyEuclidEmulator` in euclidmu2.pyx). How do you make Python call the C++ destructor? See below
 
 
 <img width="450" alt="Screenshot 2025-05-23 at 12 41 51 PM" src="https://github.com/user-attachments/assets/5a4e4502-e149-4b19-885f-cab9afa7d81c" />
 
 
-## VM: Optimization. 
+## VM: Optimization Implemented. 
 
 EE2 was quite slow and not threaded. That was slowing down chains a lot. Fixed. Test on 8 OpenMP cores (standard on Cocoa)
 
 <img width="1086" alt="Screenshot 2025-05-23 at 12 52 35 AM" src="https://github.com/user-attachments/assets/480b6007-4ebf-4cbd-be4c-26712b053f32" />
+
+# VM: Suggestion (Python wrapper)
+
+Cython is such a difficult way to create Python Wrappers. `euclidemu2.cpp` is really hard to read/parse/understand. I suggest anyone in the future to use Pybind11 (which is the way Cocoa implements the C++ <-> Python interface).
 
 
 
