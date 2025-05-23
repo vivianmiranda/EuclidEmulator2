@@ -157,7 +157,7 @@ void EuclidEmulator::compute_nlc(Cosmology csm,
     }
   }
 
-  arma::Col<double>::fixed<this->npcs-1> pc_weight(arma::fill::zeros);
+  arma::Col<double>::fixed<this->npcs> pc_weight(arma::fill::zeros);
   for(int ipc=1; ipc<this->npcs+1; ipc++) {
     for(int ic=0; ic<n_coeffs[ipc-1]; ic++) {
        // assemble PCE to get the PCA weight according to inner sum of eq. 27 in EE2 paper
