@@ -28,45 +28,48 @@
 #include <gsl/gsl_spline2d.h>
 #include <fstream>
 #include <vector>
+#include <memory>
+#include <array>
 #include "cosmo.h"
 
 using namespace std;
 
 class EuclidEmulator{
-	private:
-		/* Private members */
-		const int nz; // number of redshifts in the training data
-		const int nk; // number of k modes in training data
-		const int n_coeffs[14];
-		const int lmax;
+  private:
+    static constexpr int npcs = 14; //;
+    static constexpr int nz = 101;  // number of redshifts in the training data
+    static constexpr int nk = 613;  // number of k modes in training data
+    static constexpr int n_coeffs[14] = {53, 53, 117, 117, 53, \
+                                         117, 117, 117, 117, 521, \
+                                         117, 1539, 173, 457};
 
-		gsl_interp_accel * logk2pc_acc[15];
-    	gsl_interp_accel * logz2pc_acc[15];
-    	gsl_spline2d     * logklogz2pc_spline[15];
+    static constexpr int lmax = 16;
+    static constexpr int nindices = 8;
 
-		/* Private data containers */
-		double * pc[15];             // principal components
-		double pc_weights[14];      // PCA weights
-		double * pce_coeffs[14];     // PCE coefficients
-		double * pce_multiindex[14]; // PCE multi-indices
-		double * univ_legendre[8]; // univariate legendre polynomials
-		double * pce_basisfuncs;		// multivariate legendre polynomials
+    std::array<std::shared_ptr<gsl_spline2d>,npcs+1> logklogz2pc_spline; 
 
-		/* Private member functions */
-		void read_in_ee2_data_file();
-		void pc_2d_interp();
-		void print_info();
+    /* Private data containers */
+    double * pc[15];             // principal components
+    double pc_weights[14];      // PCA weights
+    double * pce_coeffs[14];     // PCE coefficients
+    double * pce_multiindex[14]; // PCE multi-indices
+    double * univ_legendre[8]; // univariate legendre polynomials
+    double * pce_basisfuncs;    // multivariate legendre polynomials
 
-	public:
-		/* Public members */
-		double kvec[613];
-		double Bvec[101][613];
+    /* Private member functions */
+    void read_in_ee2_data_file();
+    void pc_2d_interp();
+    void print_info();
 
-		/* Public member functions */
-		EuclidEmulator();
-		~EuclidEmulator();
-		void compute_nlc(Cosmology csm, vector<double> redshift, int n_redshift);
-		void write_nlc2file(const string &filename, vector<double> zvec, int n_redshift);
+  public:
+    /* Public members */
+    double kvec[613];
+    double Bvec[101][613];
+
+    /* Public member functions */
+    EuclidEmulator();
+    void compute_nlc(Cosmology csm, vector<double> redshift, int n_redshift);
+    void write_nlc2file(const string &filename, vector<double> zvec, int n_redshift);
 };
 
 #endif
