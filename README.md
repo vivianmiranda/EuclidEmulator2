@@ -1,4 +1,4 @@
-## VM: Many optimizations (including threading) + solved a difficult memory leak related to the use of raw gsl pointers (not shared_ptr) + destructors (RAII) for memory management w/o creating adequate copy constructors that copied the data not just the pinter (so the class copied the pointers and then multiple destructors tried to free the same memory location). This is why C++ users should use smart_ptr and not RAII with raw ptr (unless they follow the rule of 5 that implies creating a copy constructor)
+## VM: Many optimizations (including threading) + solved a difficult memory leak related to the use of raw gsl pointers (not shared_ptr) + destructors (RAII) for memory management w/o creating adequate copy constructors that copied the data not just the pointer (so the class copied the pointers and then multiple destructors tried to free the same memory location). This is why C++ users should use smart_ptr and not RAII with raw ptr (unless they follow the rule of 5 that implies creating a copy constructor)
 
 Test on 8 OpenMP cores (standard on Cocoa)
 
