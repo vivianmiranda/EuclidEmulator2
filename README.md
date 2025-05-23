@@ -1,5 +1,10 @@
 # VM: Many optimizations (including threading) + solved a difficult memory leak related to the use of raw gsl pointers (not shared_ptr) + destructors (RAII) for memory management w/o creating copy constructors (so the class copied the pointers and then multiple destructors tried to free the same memory location)
 
+Test on 8 OpenMP cores (standard on Cocoa)
+
+![Uploading Screenshot 2025-05-23 at 12.51.38 AM.png…]()
+
+
 # EuclidEmulator2 (version 1.0.1)
 This repository contains the source code of EuclidEmulator2, a fast and accurate tool to estimate the non-linear correction to the matter power spectrum.
 In contrast to its predecessor EuclidEmulator, EuclidEmulator2 allows for 8-parameter cosmological models including massive neutrinos (assuming a degenerate hierarchy) and dynamical dark energy. EuclidEmulator2 is written in C++. For more information on EuclidEmulator please visit https://github.com/miknab/EuclidEmulator.
