@@ -31,6 +31,7 @@
 #include <memory>
 #include <array>
 #include "cosmo.h"
+#include <armadillo>
 
 using namespace std;
 

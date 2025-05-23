@@ -55,60 +55,47 @@ EuclidEmulator::EuclidEmulator()
 
 /* FUNCTION TO READ IN THE DATA FILE */
 void EuclidEmulator::read_in_ee2_data_file(){
-  /// VARIABLE DECLARATIONS ///
-  off_t size;
-    struct stat s;
-  double *data;
+  static off_t size;
+  static struct stat s;
+  static double *data = NULL;
+
   double *kptr;
   int i, ik, iz, idx = 0;
 
-
-  for(iz = 0; iz < nz; iz++){
-    for(ik = 0; ik < nk; ik++){
-      this->Bvec[iz][ik] = 0.0; // initialize the resulting nlc vector
+  if (data == NULL) {
+    std::cout << PATH_TO_EE2_DATA_FILE << std::endl;
+    int fp = open(PATH_TO_EE2_DATA_FILE, O_RDONLY);
+    if(!fp) {
+      cerr << "Unable to open ./ee2_bindata.dat\n";
+          exit(1);
     }
-  }
-
-  // ==== LOAD EUCLIDEMULATOR2 DATA FILE ==== //
-  int fp = open(PATH_TO_EE2_DATA_FILE, O_RDONLY);
-  if(!fp) {
-    cerr << "Unable to open ./ee2_bindata.dat\n";
-        exit(1);
-  }
-
-  // Get the size of the file. //
     int status = fstat(fp, & s);
     size = s.st_size;
+    data = (double *) mmap (0, size, PROT_READ, MAP_PRIVATE, fp, 0);
+  }
 
-  // Map the file into memory //
-  data = (double *) mmap (0, size, PROT_READ, MAP_PRIVATE, fp, 0);
-
-  // Reading in principal components //
-  for (i=0;i<15;i++) {
-      this->pc[i] = &data[idx];  // pc[0] = PCA mean
-      idx += nk*nz;
-    }
-  // Reading in PCE coefficients //
-  for (i=0;i<14;i++) {
-      this->pce_coeffs[i] = &data[idx];
-      idx += n_coeffs[i];
-    }
-
-  // Reading in PCE multi-indices //
-  for (i=0;i<14;i++) {
-      this->pce_multiindex[i] = &data[idx];
-      idx += 8*n_coeffs[i];
-    }
+  for (int i=0;i<this->npcs+1;i++) {
+    this->pc[i] = &data[idx];  // pc[0] = PCA mean
+    idx += nk*nz;
+  }
+  for (int i=0;i<this->npcs;i++) {
+    this->pce_coeffs[i] = &data[idx];
+    idx += n_coeffs[i];
+  }
+  for (int i=0;i<this->npcs;i++) {
+    this->pce_multiindex[i] = &data[idx];
+    idx += 8*n_coeffs[i];
+  }
+  
   // vector of k modes
-    kptr = &data[idx];
+  kptr = &data[idx];
 
-    for (i=0;i<nk;i++) {
+  for (int i=0;i<nk;i++) {
     this->kvec[i] = kptr[i];
-    }
-    idx += nk;
-  // Check if all data has been read in properly
-  assert(idx == size/sizeof(double));
+  }
+  idx += nk;
 
+  assert(idx == size/sizeof(double));
 }
 
 /* 2D INTERPOLATION OF PRINCIPAL COMPONENTS */
@@ -136,43 +123,57 @@ void EuclidEmulator::pc_2d_interp(){
   }
 }
 
-/* COMPUTE NLC */
-//void EuclidEmulator::compute_nlc(Cosmology csm, double* redshift, int n_redshift, double* kmodes, int n_kmodes){
-void EuclidEmulator::compute_nlc(Cosmology csm, vector<double> redshift, int n_redshift){
-  double pc_weight;
-  double basisfunc;
-  double stp_no[n_redshift];
-
-  //printf("There are %d redshifts to compute.\n", n_redshift);
-
-  // Convert all redshifts into step numbers
-  // As we are looping through all redshifts anyway, we can just
-  // as well use the same loop to declare Bvec[iz]
+void EuclidEmulator::compute_nlc(Cosmology csm, 
+                                 vector<double> redshift, 
+                                 int n_redshift) 
+{
   for(int iz=0; iz<n_redshift; iz++) {
-    if(redshift.at(iz) > 10.0 || redshift.at(iz) < 0.0){
+    if(redshift.at(iz) > 10.0 || redshift.at(iz) < 0.0) {
       std::cout << "ERROR: EuclidEmulator2 accepts only redshifts in the interval [0.0, 10.0]\n" \
-            << "The current redshift z = " << redshift.at(iz) << " is therefore ignored." << std::endl;
+                << "The current redshift z = " << redshift.at(iz) << " is therefore ignored." << std::endl;
       continue;
     }
-    stp_no[iz] = csm.compute_step_number(redshift.at(iz));
-        //printf("nStep(%.2f) = %.4f\n", redshift.at(iz), stp_no[iz]);
   }
-  //printf("Redshifts mapped to nStep\n");
 
-  // Pre-compute all Legendre polynomials up to order lmax
-  for (int ipar=0; ipar < 8; ipar++){
-    univ_legendre[ipar] = new double[lmax+1];
-    gsl_sf_legendre_Pl_array(lmax, csm.cosmo_tf[ipar], univ_legendre[ipar]);
-    for (int l=0; l<=lmax; l++){
-      univ_legendre[ipar][l] *= sqrt(2.0*l + 1.0); //normalization
+  double pc_weight;
+  double basisfunc;
+
+  arma::Col<double> stp_no(n_redshift);
+  #pragma omp parallel for
+  for(int iz=0; iz<n_redshift; iz++) {
+    stp_no(iz) = csm.compute_step_number(redshift.at(iz));
+  }
+
+  arma::Mat<double>::fixed<lmax+1,nindices>  univ_legendre;// univariate legendre polynomials
+  #pragma omp parallel for
+  for (int ipar=0; ipar<this->nindices; ipar++) { // Pre-compute Legendre up to order lmax
+    int status = gsl_sf_legendre_Pl_array(this->lmax, 
+                                          csm.cosmo_tf[ipar], 
+                                          univ_legendre.colptr(ipar));
+    if (status) {
+      cout << "error: " << gsl_strerror (status) << std::endl;
+    }
+    for (int l=0; l<=lmax; l++) {
+      univ_legendre(l,ipar) *= sqrt(2.0*l + 1.0); //normalization
     }
   }
-  //printf("Legendre polynomials computed\n");
+
+  arma::Col<double>::fixed<this->npcs-1> pc_weight(arma::fill::zeros);
+  for(int ipc=1; ipc<this->npcs; ipc++) {
+    for(int ic=0; ic<n_coeffs[ipc-1]; ic++) {
+       // assemble PCE to get the PCA weight according to inner sum of eq. 27 in EE2 paper
+      double basicfunc = 1.0;
+      for(int ipar=0; ipar<this->nindices; ipar++) {
+        basicfunc *= univ_legendre(int(pce_multiindex[ipc-1][ic*8 + ipar]),ipar);
+      }
+      pc_weight(ipc-1) += pce_coeffs[ipc-1][ic]*basicfunc;
+    }
+  }
 
   // Initialize with PCA mean
   for(int iz=0; iz<n_redshift; iz++){
-    for(int ik=0; ik<nk; ik++){
-      Bvec[iz][ik] = gsl_spline2d_eval(logklogz2pc_spline[0].get(), log(this->kvec[ik]), stp_no[iz], NULL, NULL);
+    for(int ik=0; ik<nk; ik++) {
+      Bvec[iz][ik] = gsl_spline2d_eval(logklogz2pc_spline[0].get(), log(this->kvec[ik]), stp_no(iz), NULL, NULL);
     }
     //printf("B(k_max, z=%.2f) = %.2f\n", redshift.at(iz), Bvec[iz][nk-1]);
   }
@@ -186,16 +187,15 @@ void EuclidEmulator::compute_nlc(Cosmology csm, vector<double> redshift, int n_r
         for(int ic=0; ic<n_coeffs[ipc-1]; ic++){
           basisfunc = 1.0;
             for(int ipar=0; ipar<8 ; ipar++){
-                basisfunc *= univ_legendre[ipar][int(pce_multiindex[ipc-1][ic*8 + ipar])];
+                basisfunc *= univ_legendre(int(pce_multiindex[ipc-1][ic*8 + ipar]),ipar);
             }
             pc_weight += pce_coeffs[ipc-1][ic]*basisfunc;
         }
     // assemble PCA to get the final NLC according
         // to outer sum of eq. 27 in EE2 paper
     for(int iz=0; iz<n_redshift; iz++){
-      //printf("Treating z[%d] = %.3f ==> nStep = %.3f\n", iz, redshift.at(iz), stp_no[iz]);
       for(int ik=0; ik<nk; ik++){
-        Bvec[iz][ik] += (pc_weight*gsl_spline2d_eval(logklogz2pc_spline[ipc].get(), log(this->kvec[ik]), stp_no[iz], NULL, NULL));
+        Bvec[iz][ik] += (pc_weight*gsl_spline2d_eval(logklogz2pc_spline[ipc].get(), log(this->kvec[ik]), stp_no(iz), NULL, NULL));
       }
     }
   }
