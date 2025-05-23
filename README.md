@@ -1,4 +1,4 @@
-## VM: Solved a difficult memory leak related.
+## VM: Solved a difficult memory leak.
 
 What was the cause of the memory leak? A few reasons.
 
