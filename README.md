@@ -1,4 +1,4 @@
-# VM: Many optimizations (including threading) + solved a difficult memory leak related to the use of raw gsl pointers (not shared_ptr) + destructors (RAII) for memory management w/o creating copy constructors (so the class copied the pointers and w/ RAII there was a double free)
+# VM: Many optimizations (including threading) + solved a difficult memory leak related to the use of raw gsl pointers (not shared_ptr) + destructors (RAII) for memory management w/o creating copy constructors (so the class copied the pointers and then multiple destructors tried to free the same memory location)
 
 # EuclidEmulator2 (version 1.0.1)
 This repository contains the source code of EuclidEmulator2, a fast and accurate tool to estimate the non-linear correction to the matter power spectrum.
