@@ -168,11 +168,11 @@ void EuclidEmulator::compute_nlc(Cosmology csm,
     }
   }
 
-  arma::Cube<double> tmp(n_redshift, nk, this->npcs);
+  arma::Cube<double> tmp(n_redshift, nk, this->npcs+1);
   #pragma omp parallel for collapse(3)
   for(int iz=0; iz<n_redshift; iz++) {
     for(int ik=0; ik<nk; ik++) {
-      for(int ipc=0; ipc<this->npcs; ipc++) {
+      for(int ipc=0; ipc<this->npcs+1; ipc++) {
         tmp(iz,ik,ipc) = gsl_interp2d_eval(logklogz2pc_spline[ipc].get(), 
                                            logk.memptr(), 
                                            stp.memptr(), 
