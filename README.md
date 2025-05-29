@@ -18,6 +18,14 @@ EE2 was quite slow and not threaded. That was slowing down chains a lot. Fixed. 
 
 <img width="1086" alt="Screenshot 2025-05-23 at 12 52 35 AM" src="https://github.com/user-attachments/assets/480b6007-4ebf-4cbd-be4c-26712b053f32" />
 
+## VM: Optimization (changes) Implemented Part 2.
+
+I made several changes to cosmo class (how a2t and neutrino were computed - same mathematical expressions - just different coding). I also changed integration routines and type of 2d interpolation.
+
+Also fixed code so that you can send more than 100 z's (important on Cosmolike likelihood)
+
+Finally, I vectorized the `bvals[i] = 10.0**_CubicSpline (...)` call on euclidemu2.pyx
+
 # VM: Suggestion (Python wrapper)
 
 Cython is such a difficult way to create Python Wrappers. `euclidemu2.cpp` is really hard to read/parse/understand. I suggest anyone in the future to use Pybind11 (which is the way Cocoa implements the C++ <-> Python interface).

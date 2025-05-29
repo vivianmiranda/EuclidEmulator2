@@ -111,8 +111,9 @@ void EuclidEmulator::pc_2d_interp()
   }
   for (int i=0; i<this->npcs+1; i++) {
     this->logklogz2pc_spline[i] = 
-      std::shared_ptr<gsl_interp2d>(gsl_interp2d_alloc(gsl_interp2d_bicubic,this->nk,this->nz),
-                                    [](gsl_interp2d* p){gsl_interp2d_free(p);});
+      std::shared_ptr<gsl_interp2d>(
+          gsl_interp2d_alloc(gsl_interp2d_bilinear,this->nk,this->nz),
+                             [](gsl_interp2d* p){gsl_interp2d_free(p);});
   }
   #pragma omp parallel for
   for (int i=0; i<this->npcs+1; i++) {
@@ -126,9 +127,10 @@ void EuclidEmulator::pc_2d_interp()
 }
 
 void EuclidEmulator::compute_nlc(Cosmology csm, 
-                                 std::vector<double> redshift, 
-                                 int n_redshift)
+                                 std::vector<double> redshift)
 {
+  const int n_redshift= redshift.size();
+
   for(int iz=0; iz<n_redshift; iz++) {
     if(redshift.at(iz) > 10.0 || redshift.at(iz) < 0.0) {
       std::cout << "ERROR: EuclidEmulator2 accepts only redshifts in the interval [0.0, 10.0]\n" \
@@ -184,6 +186,7 @@ void EuclidEmulator::compute_nlc(Cosmology csm,
       }
     }
   }
+
   #pragma omp parallel for collapse(2)
   for(int iz=0; iz<n_redshift; iz++) {
     for(int ik=0; ik<nk; ik++) {

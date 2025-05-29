@@ -41,28 +41,26 @@ class Cosmology{
     void read_from_file(char *filename);
     void print_cosmo();
     void print_cosmo_tf();
-      double compute_step_number(double z); 
+    double compute_step_number(double z); 
     static double rho_nu_i_integrand(double p, void * params);
     static double a2t_integrand(double a, void * params);
 
   private:
-    static constexpr double Neff = 3.046;
-    static constexpr int nTable = 101;
-    static constexpr int nSteps = 101; 
+    static constexpr int nTable_  = 101;
+    static constexpr double Neff  = 3.046;   
     
-    arma::Col<double>::fixed<nSteps> avec;
-    arma::Col<double>::fixed<nSteps> frac_nStep;
+    arma::Col<double>::fixed<nTable_> avec;
+    arma::Col<double>::fixed<nTable_> frac_nStep;
 
-    /* Private members */
-    double t0, t10, Delta_t, H0;
+    double H0;
 
     typedef struct {
-            double mnu_i;
-            double a;
-            Cosmology * csm_instance;
+      double mnu_i;
+      double a;
+      Cosmology* csm_instance;
     } rho_nu_parameters;
     typedef struct {
-            Cosmology * csm_instance;
+      Cosmology* csm_instance;
     } a2t_parameters;
 
     // VM: LACK OF COPY CONSTRUCTOR IN THE ORIGINAL CODE CREATED A DOUBLE FREE ERROR 
@@ -70,11 +68,10 @@ class Cosmology{
     // VM: ORIGINAL AUTHOR JUST DELETED THE DESTRUCTOR CREATING A LEAK MEMORY
     // SOLUTION: SMART_PTR w/ custom deleter
     std::shared_ptr<gsl_interp> z2nStep_spline;
+    std::shared_ptr<gsl_integration_glfixed_table> wglfixed_;
 
     /* Private member functions*/
-    void isoprob_tf();
     void check_parameter_ranges();
-    void compute_z2nStep_spline();
 
     double Hubble(double a);
     double Omega_matter(double a);
@@ -84,6 +81,7 @@ class Cosmology{
     double T_gamma(double a);
     double T_nu(double a);
     double a2t(double a);
+    double a2dt(const double a, const double b);
     double a2Hubble(double a);
 };
 #endif

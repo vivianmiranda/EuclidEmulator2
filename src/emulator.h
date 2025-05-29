@@ -59,11 +59,11 @@ private:
 
 public:
   double kvec[nk];
-  double Bvec[nz][nk];
+  double Bvec[10*nz][nk];
 
   EuclidEmulator();
   ~EuclidEmulator() = default;
-  void compute_nlc(Cosmology csm, vector<double> redshift, int n_redshift);
+  void compute_nlc(Cosmology csm, vector<double> redshift);
   void write_nlc2file(const string &filename, vector<double> zvec, int n_redshift);
 };
 

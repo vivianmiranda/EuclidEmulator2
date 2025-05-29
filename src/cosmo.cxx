@@ -25,7 +25,7 @@
 #include "units_and_constants.h"
 
 #define EPSCOSMO 1e-6
-#define LIMIT 1000
+#define LIMIT 16
 
 #ifndef PRINT_FLAG
 #define PRINT_FLAG 1
@@ -34,7 +34,6 @@
 //using namespace planck_units;
 using namespace SI_units;
 
-/* CONSTRUCTOR */
 Cosmology::Cosmology(double Omega_b, double Omega_m, 
                      double Sum_m_nu, double n_s, double h, 
                      double w_0, double w_a, double A_s) :
@@ -43,7 +42,10 @@ Cosmology::Cosmology(double Omega_b, double Omega_m,
   // VM: LACK OF COPY CONSTRUCTOR IN THE ORIGINAL CODE CREATED A DOUBLE FREE ERROR 
   // VM: ON GSL* (DESTRUCTOR) AS PASSING COSMO BY VALUE COPIED THE GSL POINTER
   // VM: ORIGINAL AUTHOR JUST DELETED THE DESTRUCTOR CREATING A LEAK MEMORY
-  z2nStep_spline(gsl_interp_alloc(gsl_interp_cspline, nTable),[](gsl_interp* p){gsl_interp_free(p);})
+  z2nStep_spline(gsl_interp_alloc(gsl_interp_cspline, nTable_),
+                 [](gsl_interp* p){gsl_interp_free(p);}),
+  wglfixed_(gsl_integration_glfixed_table_alloc(LIMIT),
+            [](gsl_integration_glfixed_table* p){gsl_integration_glfixed_table_free(p);})
 {
   this->cosmo[0] = Omega_b;
   this->cosmo[1] = Omega_m;
@@ -65,18 +67,54 @@ Cosmology::Cosmology(double Omega_b, double Omega_m,
   // of the neutrino, the photon and the dark energy (DE) fluid:
   this->Omega_nu_0    = Omega_nu(1.0);
   this->Omega_gamma_0 = Omega_gamma(1.0);
-  this->Omega_DE_0    = 1 - (this->cosmo[1] + this->Omega_gamma_0 + this->Omega_nu_0);
+  this->Omega_DE_0    = 1-(this->cosmo[1]+this->Omega_gamma_0+this->Omega_nu_0);
 
-  //printf("Cosmological parameters assigned successfully\n");
-  // Prepare for spline interpolation of z --> nStep mapping:
-  this->t0  = a2t(1.0);           // proper time at z = 0 (or equivalently a = 1)
-  this->t10 = a2t(1.0/(10+1));    // proper time at z = 10 (or equivalently a = 0.090909...)
-  this->Delta_t = (this->t0-this->t10)/(this->nSteps-1);
-  this->compute_z2nStep_spline();
+  const double zmax   = 10.0;
+  const double tzmax  = a2t(1.0/(zmax+1));  // proper time at z = zmax
+
+  for(int idx=0; idx<this->nTable_; idx++) {
+    const double step = zmax/(this->nTable_-1.0);
+    this->avec(idx)   = 1.0/(zmax-idx*step+1.0);
+  }
+  if(abs(this->avec(this->nTable_-1.0)-1.0) > 1e-10) {
+    std::cout << "Logic EE2 error" << std::endl;
+    exit(1);
+  } // check that the first z is 0
+
+  arma::Col<double>::fixed<nTable_> tmp;
+  #pragma omp parallel for
+  for(int idx=0; idx<this->nTable_; idx++) {
+    if (idx == 0) tmp(idx) = Cosmology::a2dt(1.0/(zmax+1),this->avec(idx));
+    else tmp(idx) = Cosmology::a2dt(this->avec(idx-1),this->avec(idx));
+  }
+
+  double t0 = tzmax;
+  for(int idx=0; idx<this->nTable_; idx++) {
+    t0 += tmp(idx);
+  }
+  const double Delta_t = (t0-tzmax)/(this->nTable_-1);
+
+  double t_current  = tzmax;
+  for(int idx=0; idx<this->nTable_; idx++) {
+    t_current += tmp(idx);
+    this->frac_nStep(idx) = (t_current - tzmax)/Delta_t;
+  }
+
+  // Step 2: Interpolate the array
+  gsl_interp_init(this->z2nStep_spline.get(), 
+                  this->avec.memptr(), 
+                  this->frac_nStep.memptr(), 
+                  this->nTable_);
+  
+
   this->check_parameter_ranges();
-  this->isoprob_tf();
 
-  if(PRINT_FLAG){
+  // ISOPROBALISTIC TRANSFORMATION TO UNIT HYPERCUBE
+  for (int i=0; i<8; i++) {
+    cosmo_tf[i] = 2*(cosmo[i] - minima[i])/(maxima[i] - minima[i]) - 1.0;
+  }
+
+  if(PRINT_FLAG) {
     print_cosmo();
     print_cosmo_tf();
   } 
@@ -98,13 +136,6 @@ void Cosmology::check_parameter_ranges() {
     std::cout << "Parameter w_a is outside allowed range:" << std::endl;
     std::cout << " w_a = " << cosmo[6] << std::endl;
     exit(1);
-  }
-}
-
-/* ISOPROBALISTIC TRANSFORMATION TO UNIT HYPERCUBE */
-void Cosmology::isoprob_tf() {
-  for (int i=0; i<8; i++){
-    cosmo_tf[i] = 2*(cosmo[i] - minima[i])/(maxima[i] - minima[i]) - 1.0;
   }
 }
 
@@ -169,15 +200,8 @@ double Cosmology::Omega_nu(double a) {
 
   F.function = &rho_nu_i_integrand;
   F.params = &rho_nu_pars;
-  
-  gsl_integration_workspace* gsl_wsp = gsl_integration_workspace_alloc(LIMIT);
 
-  gsl_integration_qag(&F, 0.0, pmax, 0.0,
-                      EPSCOSMO, LIMIT, GSL_INTEG_GAUSS61,
-                      gsl_wsp, &rho_nu_i, &error);
-
-  gsl_integration_workspace_free(gsl_wsp);
-
+  rho_nu_i=gsl_integration_glfixed(&F, 0.0, pmax, this->wglfixed_.get());
   rho_nu_i *= prefactor;
 
   // NOTICE: The prefactor 3 comes from the fact that we ALWAYS consider three
@@ -205,7 +229,7 @@ double Cosmology::a2t_integrand(double lna, void *params) {
   return 1./(a2t_pars->csm_instance->a2Hubble(exp(lna)));
 }
 
-double Cosmology::a2t(double a) {
+double Cosmology::a2dt(const double a, const double b) {
   // This function converts a scale factor a to a proper time.
   a2t_parameters a2t_params;
   gsl_function F;
@@ -213,60 +237,26 @@ double Cosmology::a2t(double a) {
   a2t_params.csm_instance = this;
   F.function = &a2t_integrand;
   F.params = &a2t_params;
-
-  gsl_integration_workspace* gsl_wsp = gsl_integration_workspace_alloc(LIMIT);
-
-  gsl_integration_qag(&F, -15, log(a), 0.0,
-                      EPSCOSMO, LIMIT, GSL_INTEG_GAUSS61,
-                      gsl_wsp, &result, &error);
-
-  gsl_integration_workspace_free(gsl_wsp);
-  
-  return result;
+  return gsl_integration_glfixed(&F, log(a), log(b), this->wglfixed_.get());
 }
 
-void Cosmology::compute_z2nStep_spline() {
-  // This function creates and interpolates the array of (z,nStep)-tuples 
-  // computed in "Cosmology::compute_time_lookup_table". It returns a
-  // gsl_spline function than can be readily evaluated.   
-
-  constexpr double z10 = 10.0;
-  
-  #pragma omp parallel for
-  for(int idx=0; idx<this->nTable; idx++) {
-    // Loop through redshifts: z \in {10.0, 9.9, ..., 0.1, 0.0}
-    const double z = z10 - idx*0.1;
-    // Convert z to a (GSL expects x-values to be in ascending order)
-    this->avec(idx) = 1.0/(z+1.0);
-    // Convert a to t
-    const double t_current = Cosmology::a2t(this->avec(idx));
-    // Convert t to nStep (fractional)
-    this->frac_nStep(idx) = (t_current - this->t10)/this->Delta_t;
-  }
-
-  // Some sanity checks:
-  assert(abs(this->frac_nStep(0)) < EPSCOSMO);
-  assert(abs(this->frac_nStep(this->nTable-1) - (this->nSteps-1)) < EPSCOSMO);
-
-  // Step 2: Interpolate the array
-  gsl_interp_init(this->z2nStep_spline.get(), 
-                  this->avec.memptr(), 
-                  this->frac_nStep.memptr(), 
-                  this->nTable);
+double Cosmology::a2t(double a) {
+  return this->a2dt(exp(-15), a);
 }
 
 double Cosmology::compute_step_number(double z) {
   // evaluates the spline mapping redshift to a (fractional) output step.
-  if(abs(z) < EPSCOSMO) {
+ /* if(abs(z) < EPSCOSMO) {
     return 100.0;
   }
   else {
+*/
     return gsl_interp_eval(this->z2nStep_spline.get(), 
                            this->avec.memptr(),
                            this->frac_nStep.memptr(),
-                           1.0/(z + 1.), 
+                           1.0/(z+1.), 
                            NULL);
-  }
+//  }
 }
 
 /* PRINT FUNCTIONS */
