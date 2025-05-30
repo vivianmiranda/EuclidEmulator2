@@ -20,16 +20,23 @@ EE2 was quite slow and not threaded. That was slowing down chains a lot. Fixed. 
 
 ## VM: Optimization (changes) Implemented Part 2.
 
-I made several changes to cosmo class (how a2t and neutrino were computed - same mathematical expressions - just different coding). I also changed integration routines and type of 2d interpolation.
+I made several changes to cosmo class (how a2t and neutrino were computed - same mathematical expressions - just different coding). I also changed integration routines and type of 2d interpolation. They affected the chi2 at the order of 0.005
 
 Also fixed code so that you can send more than 100 z's (important on Cosmolike likelihood)
 
 Finally, I vectorized the `bvals[i] = 10.0**_CubicSpline (...)` call on euclidemu2.pyx
 
+## VM: Optimization (changes) Implemented Part 3.
+
+I created the function `get_boost2(cosmo_par_in,redshifts,ee2,custom_kvec=None)` that gets the `Emulator` class as an argument so we dont need to read files at every point in the chain (the ee2 becomes a global pointer on the LSST/Roman cobaya likelihood class.
+
+After Part I,II, III (8 cores) - the difference between Halofit and EE2 is just 0.03-0.04 seconds on 8 cores
+
+<img width="1699" alt="Screenshot 2025-05-30 at 3 52 27 PM" src="https://github.com/user-attachments/assets/c4d2fef5-d9dc-447d-9366-9bb430574d40" />
+
 # VM: Suggestion (Python wrapper)
 
 Cython is such a difficult way to create Python Wrappers. `euclidemu2.cpp` is really hard to read/parse/understand. I suggest anyone in the future to use Pybind11 (which is the way Cocoa implements the C++ <-> Python interface).
-
 
 
 # EuclidEmulator2 (version 1.0.1)
