@@ -465,6 +465,112 @@ def get_boost(cosmo_par_in,redshifts,custom_kvec=None):
 
     return kvals,bvals
 
+def get_boost2(cosmo_par_in,redshifts,ee2,custom_kvec=None):
+
+    if isinstance(redshifts, (int, float)):
+        redshifts = np.asarray([redshifts])
+    else:
+        redshifts = np.asarray(redshifts)
+
+    for z in redshifts:
+        assert z <= 10.0 and z>=0.0, "EuclidEmulator2 allows only redshifts in the interval [0.0, 10.0]"
+
+    #Check if all variables are passed and convert to emu dict
+    cosmo_par=convert_to_emu(cosmo_par_in)
+    #Check if all parameters are in range
+    check_param_range(cosmo_par)
+
+    cosmo=PyCosmology(cosmo_par['Omega_b'],
+                      cosmo_par['Omega_m'],
+                      cosmo_par['m_ncdm'],
+                      cosmo_par['n_s'],
+                      cosmo_par['h'],
+                      cosmo_par['w0_fld'],
+                      cosmo_par['wa_fld'],
+                      cosmo_par['A_s'])
+
+    ee2.compute_nlc(cosmo,redshifts)
+
+    k=np.asarray(ee2.kvec)
+    logboost=np.reshape(ee2.Bvec[0:len(redshifts)],(len(redshifts),len(k)))
+
+    #Extrapolate for custom k-range
+    kvals = k
+    k_shape = kvals.shape
+
+    do_extrapolate_above = False
+    do_extrapolate_below = False
+    if not(custom_kvec is None):
+        upper_mask = custom_kvec < max(kvals)
+        lower_mask = custom_kvec > min(kvals)
+        mask = [u and l for (u,l) in zip(lower_mask, upper_mask)]
+        custom_k_within_range = custom_kvec[mask]
+        custom_k_below = custom_kvec[[not(l) for l in lower_mask]]
+        custom_k_above = custom_kvec[[not(u) for u in upper_mask]]
+
+        if any(custom_kvec > max(kvals)):
+            wrn_message = ("Warning:\nEuclidEmulator2 emulates the non-linear correction in \n"
+                           "the interval [8.73e-3 h/Mpc, 9.41h/Mpc]. You are \n"
+                           "requesting k modes beyond k_max = 9.41h/Mpc. \n"
+                           "Higher k modes constantly extrapolated.")
+
+            print(wrn_message)
+            do_extrapolate_above = True
+
+        if any(custom_kvec < min(kvals)):
+            wrn_message = ("Warning:\nEuclidEmulator2 emulates the non-linear correction in \n"
+                           "the interval [8.73e-3 h/Mpc, 9.41h/Mpc]. You are \n"
+                           "requesting k modes below k_min = 8.73e-3 h/Mpc. \n"
+                           "Lower k modes constantly extrapolated.")
+
+            print(wrn_message)
+            do_extrapolate_below = True
+
+
+    nk = len(kvals)
+    nz = len(redshifts)
+    logboost2d = logboost.reshape(nz, nk)
+
+    if not do_extrapolate_below and not do_extrapolate_above and custom_kvec is not None:
+        from scipy.interpolate import interp1d
+        cs = interp1d(
+            np.log10(kvals),
+            logboost2d,
+            axis=1,
+            kind='cubic',
+            fill_value='extrapolate',
+            assume_sorted=True
+        )
+        bvals = 10**cs(np.log10(custom_k_within_range))
+        kvals = custom_kvec
+    else:
+        bvals = {}
+        for i in range(nz):
+            tmp = logboost[i]
+            if not(custom_kvec is None):
+                bvals[i] = 10.0**_CubicSpline(np.log10(kvals),
+                                              tmp.reshape(k_shape)
+                                              )(np.log10(custom_k_within_range))
+
+                #Extrapolate if necessary
+                if do_extrapolate_below:
+                    # below the k_min of EuclidEmulator2, we are in the linear regime where
+                    # the boost factor is unity by construction
+                    b_extrap = np.ones_like(custom_k_below)
+                    bvals[i] = np.concatenate((b_extrap, bvals[i]))
+
+                if do_extrapolate_above:
+                    # We extrapolate by setting all b(k > k_max) to b(k_max)
+                    b_extrap = bvals[i][-1] * np.ones_like(custom_k_above)
+                    bvals[i] = np.concatenate((bvals[i], b_extrap))
+
+            else:
+                bvals[i] = 10.**tmp.reshape(k_shape)
+
+        if not(custom_kvec is None):       # This could probably be done cleaner!
+            kvals = custom_kvec
+
+    return kvals,bvals
 
 def get_plin(emu_pars_dict, custom_kvec, redshifts):
 
