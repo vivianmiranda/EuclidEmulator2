@@ -12,7 +12,7 @@
             "-fopenmp",
             "-D ARMA_NO_DEBUG",
             "-D PRINT_FLAG=0",
-            "-D PATH_TO_EE2_DATA_FILE=\"/home/vivianmiranda/extra_data/Vivian/cocoa2025/cocoa/Cocoa/.local/lib/python3.10/site-packages/euclidemu2/ee2_bindata.dat\"",
+            "-D PATH_TO_EE2_DATA_FILE=\"/Users/vivianmiranda/data/COCOA/october2025/cocoa/Cocoa/.local/lib/python3.10/site-packages/euclidemu2/ee2_bindata.dat\"",
             "-DARMA -DARMA_DONT_PRINT_FAST_MATH_WARNING"
         ],
         "extra_link_args": [

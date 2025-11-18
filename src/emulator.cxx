@@ -109,6 +109,13 @@ void EuclidEmulator::pc_2d_interp()
   for (int i=nz-1; i>=0; i--) {
     this->stp(i) = i;
   }
+  // VM: avoid interpolation boundary issues 
+  // VM: (by not computing spline exactly at the border)
+  this->logk(0) -= 1e-10;
+  this->logk(this->nk-1) += 1e-10;
+  this->stp(0) -= 1e-10;
+  this->stp(this->nz-1) += 1e-10;
+
   for (int i=0; i<this->npcs+1; i++) {
     this->logklogz2pc_spline[i] = 
       std::shared_ptr<gsl_interp2d>(
