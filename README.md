@@ -1,43 +1,135 @@
-## VM: Solved a difficult memory leak.
+# Cocoa modifications to EuclidEmulator2 <a name="cocoa_mods"></a>
 
-What was the cause of the memory leak? A few reasons.
+This fork carries the changes Cocoa needs to run EuclidEmulator2
+inside an MCMC: the Cosmolike likelihoods request the nonlinear
+boost at every accepted step, for about 110 redshifts at a time.
+The pinned commit in Cocoa's `set_installation_options.sh` selects
+this modified code; the pre-modification code is preserved at
+commit `ff59f66` (commented out in the same file), and the
+upstream project lives at https://github.com/miknab/EuclidEmulator2.
 
-(1)  The use of raw gsl pointers (not shared_ptr) + destructors (RAII) for memory management w/o creating adequate copy constructors that copied the data not just the pointer (problem on both cosmology and emulator classes). In this case, the members of the class cosmology copied the pointers as they were passed by value in an argument of a function on Python. Then, multiple destructors tried to free the same memory location (this double free causes an immediate segfault). This common issue is why C++ users should use smart_ptr and not RAII with raw ptr (unless they follow the so-called *rule of 5* that implies creating a copy constructor) - that was a topic on my computational physics C++ slides available on Cocoa repo. 
+## Why the original could not serve an MCMC
 
-(2) To avoid problem one, the author seemed to have explicitly commented on the C++ destructor for the Cosmology class. So, there was no RAII to delete the gsl_interp allocation.
+- **A 101-redshift buffer.** `Bvec` was the fixed array
+  `double[101][613]` (101 is the training grid's redshift count),
+  and `compute_nlc` wrote one row per requested redshift with no
+  bound check: more than 101 redshifts silently overflowed the
+  buffer. The Cosmolike likelihoods send about 110.
+- **A fresh emulator every call.** `get_boost` constructed a new
+  `PyEuclidEmulator` internally, so every evaluation re-read
+  `ee2_bindata.dat` and rebuilt all fifteen 2D interpolants:
+  initialization work, paid at every MCMC step.
+- **Single-threaded hot loops.** The (redshift, k mode, principal
+  component) evaluation ran as nested serial loops over
+  `gsl_spline2d_eval`.
+- **Memory leaks**, from three classic C++/Cython traps. First,
+  raw GSL pointers were managed by RAII destructors WITHOUT the
+  copy constructors the rule of five requires: the Cosmology
+  object is passed by value from python, the copy shares the
+  pointers, and two destructors then free the same memory - an
+  immediate segfault (the double-free case covered in the
+  computational-physics C++ slides on the Cocoa repository).
+  Second, to dodge that segfault the destructor had been commented
+  out, so nothing freed the GSL allocations at all. Third, the
+  Cython wrappers (`PyCosmology`, `PyEuclidEmulator`) never
+  defined `__dealloc__`, so python never called the C++
+  destructors that did exist.
+- **A border artifact.** The 2D interpolation was evaluated
+  exactly at the last node of the step-number table, on the very
+  boundary of the GSL spline's domain.
 
-(3) Even with the C++ destructors coded, the author forgot to ask Python to call them in both Cosmology and Emulator wrappers (`cdef class PyCosmology` and `cdef class PyEuclidEmulator` in euclidmu2.pyx). How do you make Python call the C++ destructor? See below
+## What the modifications are
 
+- **API**: `get_boost2(params, redshifts, ee2, custom_kvec=None)`
+  takes a pre-built `PyEuclidEmulator`. The Cobaya likelihood
+  builds it once at initialization and hands it in at every step
+  (`get_boost` remains for compatibility). The data read is also
+  cached in a static buffer, so only the first construction in a
+  process pays the 7.7 MB file.
+- **Capacity**: `Bvec[10*nz][nk]` holds 1,010 redshifts.
+- **Threading**: OpenMP `parallel for` over the step-number
+  conversion, the Legendre precomputation, the
+  (redshift, k mode, principal component) interpolation cube
+  (`collapse(3)`), and the final assembly (`collapse(2)`). Thread
+  safety comes from replacing `gsl_spline2d_eval` plus its shared
+  accelerator objects with the stateless `gsl_interp2d_eval`
+  called with `NULL` accelerators: the accelerators are mutable
+  shared state, exactly what a parallel loop cannot have.
+- **Containers**: fixed-size armadillo `Col`/`Mat`/`Cube` with
+  `constexpr` dimensions (`ARMA_NO_DEBUG`, C++20) replace raw C
+  arrays and per-call `new`.
+- **Interpolation**: bicubic to bilinear in
+  (log k, step number), and the last step-number node nudged by
+  `1e-10` so no evaluation sits exactly on the border (the
+  boundary fix). The cosmology class also changed how the
+  time-integration and neutrino quantities are computed (same
+  mathematical expressions, different routines).
+- **Memory**: GSL objects held by `std::shared_ptr` with custom
+  deleters, and `__dealloc__` added to both Cython wrappers.
+- **Python layer**: the per-redshift `_CubicSpline` loop became
+  one vectorized `interp1d(..., axis=1)` over all redshifts, and
+  `setup.py` takes the compilers from the environment (Cocoa sets
+  them) instead of hard-coding `g++`.
 
-<img width="450" alt="Screenshot 2025-05-23 at 12 41 51 PM" src="https://github.com/user-attachments/assets/5a4e4502-e149-4b19-885f-cab9afa7d81c" />
+## The speed-up
 
+Measured on 2026-09-23 (Apple silicon laptop; the exact call the
+likelihoods make per MCMC step: 110 redshifts on a 1,189-point k
+grid; mean of 10 calls after a warm-up):
 
-## VM: Optimization Implemented. 
+- Cocoa build, 4 OpenMP threads, pre-built emulator:
+  **21.5 ms per call**.
+- Cocoa build, 1 thread: 43.6 ms (the OpenMP gain on this laptop;
+  the 8-core screenshots below show the cluster-style gain).
+- Original build: **309 ms per call** - about **14x slower** -
+  with its per-call emulator construction and serial loops (and
+  the two calls its 101-redshift buffer forces for 110 redshifts).
 
-EE2 was quite slow and not threaded. That was slowing down chains a lot. Fixed. Test on 8 OpenMP cores (standard on Cocoa)
+After the changes, the cost difference between Halofit and EE2 in
+a Cosmolike likelihood evaluation is 0.03-0.04 seconds on 8 cores:
 
 <img width="1086" alt="Screenshot 2025-05-23 at 12 52 35 AM" src="https://github.com/user-attachments/assets/480b6007-4ebf-4cbd-be4c-26712b053f32" />
 
-## VM: Optimization (changes) Implemented Part 2.
-
-I made several changes to cosmo class (how a2t and neutrino were computed - same mathematical expressions - just different coding). I also changed integration routines and type of 2d interpolation. They affected the chi2 at the order of 0.005
-
-Also fixed code so that you can send more than 100 z's (important on Cosmolike likelihood)
-
-Finally, I vectorized the `bvals[i] = 10.0**_CubicSpline (...)` call on euclidemu2.pyx
-
-## VM: Optimization (changes) Implemented Part 3.
-
-I created the function `get_boost2(cosmo_par_in,redshifts,ee2,custom_kvec=None)` that gets the `Emulator` class as an argument so we dont need to read files at every point in the chain (the ee2 becomes a global pointer on the LSST/Roman cobaya likelihood class.
-
-After Part I,II, III (8 cores) - the difference between Halofit and EE2 is just 0.03-0.04 seconds on 8 cores
-
 <img width="1699" alt="Screenshot 2025-05-30 at 3 52 27 PM" src="https://github.com/user-attachments/assets/c4d2fef5-d9dc-447d-9366-9bb430574d40" />
 
-# VM: Suggestion (Python wrapper)
+How python calls the C++ destructor (`__dealloc__`, the third leak
+fix):
 
-Cython is such a difficult way to create Python Wrappers. `euclidemu2.cpp` is really hard to read/parse/understand. I suggest anyone in the future to use Pybind11 (which is the way Cocoa implements the C++ <-> Python interface).
+<img width="450" alt="Screenshot 2025-05-23 at 12 41 51 PM" src="https://github.com/user-attachments/assets/5a4e4502-e149-4b19-885f-cab9afa7d81c" />
 
+## Validation against the pre-modification code
+
+Measured on 2026-09-23 inside Cocoa: the original commit `ff59f66`
+built side by side, the same cosmic-shear data vector evaluated
+with both builds at ten cosmologies drawn across the
+omegam/ns/As space, and the difference scored as
+$\Delta\chi^2 = \delta^T C^{-1} \delta$ under each project's
+scale cuts (the original needs a compatibility shim to run at all:
+a `get_boost2` adapter and redshifts chunked in batches of 100).
+
+| project | max $\Delta\chi^2$ | max fractional difference |
+|---|---|---|
+| lsst_y1 | $8.6\times10^{-6}$ | $4.6\times10^{-5}$ |
+| des_y3 | $3.0\times10^{-8}$ | $7.4\times10^{-6}$ |
+| desy1xplanck | $7.2\times10^{-7}$ | $1.7\times10^{-5}$ |
+| roman_fourier | $4.3\times10^{-4}$ | $3.5\times10^{-5}$ |
+| roman_real | $7.2\times10^{-5}$ | $3.9\times10^{-5}$ |
+| roman_kl | $1.1\times10^{-4}$ | $2.7\times10^{-5}$ |
+
+The bilinear interpolation and the border nudge shift the boost at
+the few-times-$10^{-5}$ fractional level, far below every
+project's statistical error; at the raw-$\chi^2$ level the shift
+is of order 0.005-0.01, matching the estimate recorded when the
+interpolation change was made. The Cocoa unit tests pin this
+comparison (the EE2 modification and race checks of
+`projects/lsst_y1/tests/test_ee2.py`, and the Halofit-vs-EE2
+advisory checks NL1-NL2 in every project).
+
+> [!NOTE]
+> Cython is a difficult way to build python wrappers: the
+> generated `src/euclidemu2.cpp` is essentially unreadable. A
+> future interface should use pybind11, the way the
+> Cocoa-Cosmolike C++ interfaces are built.
 
 # EuclidEmulator2 (version 1.0.1)
 This repository contains the source code of EuclidEmulator2, a fast and accurate tool to estimate the non-linear correction to the matter power spectrum.
